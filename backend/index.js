@@ -58,11 +58,22 @@ app.post("/admin/login", (req, res) => {
 app.post("/fields", authenticateToken, async (req, res) => {
   const { name } = req.body;
   try {
-    const result = await pool.query(
-      "INSERT INTO fields (name) VALUES ($1) RETURNING *",
-      [name]
-    );
-    res.json(result.rows[0]);
+    const newField = new Field({ name });
+    await newField.save();
+    res.json(newField);
+  } catch (err) {
+    res.status(400).send(err.message);
+  }
+});
+
+app.post("/subjects", authenticateToken, async (req, res) => {
+  const { name, field_id } = req.body;
+  try {
+    const field = await Field.findById(field_id);
+    if (!field) return res.status(404).send("Field not found");
+    const newSubject = new Subject({ name, field: field_id });
+    await newSubject.save();
+    res.json(newSubject);
   } catch (err) {
     res.status(400).send(err.message);
   }
@@ -75,11 +86,15 @@ app.post("/student/signup", async (req, res) => {
   const { username, password, name, year, field_id } = req.body;
   try {
     const hashedPassword = await bcryptjs.hash(password, 10);
-    const result = await pool.query(
-      "INSERT INTO students (username,password,name,year,field_id) VALUES ($1,$2,$3,$4,$5) RETURNING *",
-      [username, hashedPassword, name, year, field_id]
-    );
-    res.json(result.rows[0]);
+    const newStudent = new Student({
+      username,
+      password: hashedPassword,
+      name,
+      year,
+      field: field_id,
+    });
+    await newStudent.save();
+    res.json(newStudent);
   } catch (err) {
     res.status(400).send(err.message);
   }
@@ -89,25 +104,16 @@ app.post("/student/signup", async (req, res) => {
 app.post("/student/login", async (req, res) => {
   const { username, password } = req.body;
   try {
-    const result = await pool.query(
-      "SELECT * FROM students WHERE username = $1",
-      [username]
-    );
-    if (result.rows.length > 0) {
-      const match = await bcrypt.compare(password, result.rows[0].password);
-      if (match) {
-        const token = jwt.sign(
-          { studentId: result.rows[0].id },
-          process.env.JWT_SECRET,
-          { expiresIn: "1h" }
-        );
-        res.json({ token });
-      } else {
-        res.status(401).send("Invalid credentials");
-      }
-    } else {
-      res.status(404).send("User not found");
-    }
+    const student = await Student.findOne({ username });
+    if (!student) return res.status(404).send("User not found");
+
+    const match = await bcryptjs.compare(password, student.password);
+    if (!match) return res.status(401).send("Invalid credentials");
+
+    const token = jwt.sign({ studentId: student._id }, process.env.JWT_SECRET, {
+      expiresIn: "1h",
+    });
+    res.json({ token });
   } catch (err) {
     res.status(400).send(err.message);
   }
